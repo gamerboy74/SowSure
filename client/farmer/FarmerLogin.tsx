@@ -1,13 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import { supabase } from "../lib/supabase";
-import { useWallet } from "../hooks/useWallet"; // Adjust path as needed
-import { Eye, EyeOff, Wallet, LogOut } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 
 function FarmerLogin() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { address, connect, disconnect, isConnecting } = useWallet();
   const [formData, setFormData] = useState({
     email: "",
     password: "",
@@ -54,66 +52,19 @@ function FarmerLogin() {
     };
   }, []);
 
-  const handleWalletConnect = async () => {
-    try {
-      setError(null);
-      await connect();
-    } catch (error) {
-      setError(
-        error instanceof Error ? error.message : "Failed to connect wallet"
-      );
-    }
-  };
-
-  const handleWalletDisconnect = async () => {
-    try {
-      setError(null);
-      await disconnect();
-    } catch (error) {
-      setError(
-        error instanceof Error ? error.message : "Failed to disconnect wallet"
-      );
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!address) {
-      setError("Please connect your wallet first");
-      return;
-    }
-
     setLoading(true);
     setError(null);
     setIsRedirecting(true);
 
     try {
-      const { data: farmerData } = await supabase
-        .from("farmers")
-        .select("wallet_address")
-        .eq("email", formData.email)
-        .single();
-
-      if (
-        farmerData?.wallet_address &&
-        farmerData.wallet_address.toLowerCase() !== address.toLowerCase()
-      ) {
-        setIsRedirecting(false);
-        setError(
-          "Connected wallet does not match the registered wallet address"
-        );
-        return;
-      }
-
       const { error: authError } = await supabase.auth.signInWithPassword({
         email: formData.email,
         password: formData.password,
       });
 
-      if (authError) {
-        setIsRedirecting(false);
-        throw authError;
-      }
+      if (authError) throw authError;
     } catch (error) {
       setIsRedirecting(false);
       console.error("Login error:", error);
@@ -129,7 +80,6 @@ function FarmerLogin() {
   };
 
   const handleLogout = async () => {
-    await disconnect();
     await supabase.auth.signOut();
     navigate("/");
   };
@@ -190,35 +140,6 @@ function FarmerLogin() {
             />
           </div>
 
-          <div className="space-y-2">
-            <button
-              type="button"
-              onClick={handleWalletConnect}
-              disabled={isConnecting || !!address}
-              className="w-full flex items-center justify-center px-4 py-2 border border-emerald-600 rounded-md shadow-sm text-emerald-600 bg-emerald-50 hover:bg-emerald-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 disabled:opacity-50"
-            >
-              <Wallet className="mr-2 h-5 w-5" />
-              {address
-                ? `Connected: ${address.slice(0, 6)}...${address.slice(-4)}`
-                : isConnecting
-                ? "Connecting..."
-                : "Connect Wallet"}
-            </button>
-            {address && (
-              <button
-                type="button"
-                onClick={handleWalletDisconnect}
-                className="w-full flex items-center justify-center px-4 py-2 border border-red-600 rounded-md shadow-sm text-red-600 bg-red-50 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-              >
-                <LogOut className="mr-2 h-5 w-5" />
-                Disconnect Wallet
-              </button>
-            )}
-            <p className="mt-1 text-sm text-red-500">
-              Wallet connection is required to login
-            </p>
-          </div>
-
           <div>
             <label className="block text-sm font-medium text-gray-700">
               Password <span className="text-red-500">*</span>
@@ -259,7 +180,7 @@ function FarmerLogin() {
 
           <button
             type="submit"
-            disabled={loading || !address}
+            disabled={loading}
             className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
           >
             {loading ? "Logging in..." : "Login"}

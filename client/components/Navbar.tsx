@@ -14,6 +14,8 @@ import {
 import { useWallet } from "../hooks/useWallet";
 import { supabase } from "../lib/supabase";
 import SearchUsers from "./SearchUsers";
+import type { Wallet as WalletType } from "../types/types";
+import { WalletService } from "../services/wallet.service";
 
 // Simple debounce utility
 const debounce = (func: (...args: any[]) => void, wait: number) => {
@@ -31,16 +33,17 @@ interface NavbarProps {
 function Navbar({ isAuthenticated = false }: NavbarProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { address, connect, disconnect } = useWallet();
+  const { address, balance } = useWallet(); // Remove connect/disconnect
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [userType, setUserType] = useState<"farmer" | "buyer" | null>(null);
-  const [tokenBalance, setTokenBalance] = useState(2500);
   const [notifications, setNotifications] = useState(3);
   const profileMenuRef = useRef<HTMLDivElement>(null);
+  const [walletBalance, setWalletBalance] = useState<number>(0);
+  const [ethBalance, setEthBalance] = useState<string>("0");
 
   console.log("Navbar rendered, isAuthenticated:", isAuthenticated);
 
@@ -91,15 +94,51 @@ function Navbar({ isAuthenticated = false }: NavbarProps) {
     }
   };
 
+  const fetchWalletBalance = async () => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: wallet } = await supabase
+        .from("wallets")
+        .select("token_balance")
+        .eq("user_id", user.id)
+        .single();
+
+      if (wallet) {
+        setWalletBalance(wallet.token_balance);
+      }
+    } catch (err) {
+      console.error("Error fetching wallet balance:", err);
+    }
+  };
+
   const debouncedFetchProfilePhoto = debounce(fetchProfilePhoto, 500);
 
   useEffect(() => {
-    console.log(
-      "Navbar useEffect triggered, isAuthenticated:",
-      isAuthenticated
-    );
-    debouncedFetchProfilePhoto();
+    if (isAuthenticated) {
+      const init = async () => {
+        try {
+          await fetchProfilePhoto();
+          await fetchWalletBalance();
+        } catch (error) {
+          console.error("Error initializing navbar:", error);
+        }
+      };
+      init();
+    }
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchWalletBalance();
+      if (address) {
+        loadEthBalance();
+      }
+    }
+  }, [isAuthenticated, address]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -120,7 +159,20 @@ function Navbar({ isAuthenticated = false }: NavbarProps) {
     };
   }, [showProfileMenu]);
 
+  const loadEthBalance = async () => {
+    try {
+      const { balance } = await WalletService.getWalletBalance(
+        address!,
+        "onchain"
+      );
+      setEthBalance(balance);
+    } catch (error) {
+      console.error("Error loading ETH balance:", error);
+    }
+  };
+
   if (
+    !isAuthenticated ||
     location.pathname.includes("/login") ||
     location.pathname.includes("/register")
   ) {
@@ -130,7 +182,6 @@ function Navbar({ isAuthenticated = false }: NavbarProps) {
   const handleLogout = async () => {
     try {
       await supabase.auth.signOut();
-      disconnect();
       setShowProfileMenu(false);
       window.location.href = "/"; // Force page refresh
     } catch (err) {
@@ -161,6 +212,11 @@ function Navbar({ isAuthenticated = false }: NavbarProps) {
             <div className="flex items-center space-x-4">
               {isAuthenticated ? (
                 <>
+                  <div className="flex items-center bg-gray-100 text-gray-800 px-3 py-1 rounded-full text-sm font-medium">
+                    <Coins className="h-4 w-4 mr-1 text-yellow-500" />
+                    <span>{balance.token.toLocaleString()} USDT</span>
+                  </div>
+
                   {/* Marketplace Link */}
                   <Link
                     to="/marketplace"
@@ -169,11 +225,6 @@ function Navbar({ isAuthenticated = false }: NavbarProps) {
                     <ShoppingCart className="h-6 w-6" />
                     <span className="ml-1 hidden md:inline">Marketplace</span>
                   </Link>
-
-                  <div className="flex items-center bg-gray-100 text-gray-800 px-3 py-1 rounded-full text-sm font-medium">
-                    <Coins className="h-4 w-4 mr-1 text-yellow-500" />
-                    <span>{tokenBalance.toLocaleString()} TOK</span>
-                  </div>
 
                   <div className="relative">
                     <button className="text-gray-600 hover:text-emerald-600">
@@ -218,21 +269,17 @@ function Navbar({ isAuthenticated = false }: NavbarProps) {
                     )}
                   </div>
 
-                  {address ? (
-                    <div className="hidden md:flex items-center px-4 py-2 text-sm text-emerald-700 bg-emerald-50 rounded-md">
-                      <Wallet className="h-4 w-4 mr-2" />
-                      <span>
-                        {address.slice(0, 6)}...{address.slice(-4)}
-                      </span>
+                  {address && (
+                    <div className="hidden md:flex items-center space-x-2">
+                      <div className="px-4 py-2 text-sm text-emerald-700 bg-emerald-50 rounded-md">
+                        <span className="font-mono">
+                          {address.slice(0, 6)}...{address.slice(-4)}
+                        </span>
+                      </div>
+                      <div className="px-4 py-2 text-sm text-emerald-700 bg-emerald-50 rounded-md">
+                        {parseFloat(ethBalance).toFixed(4)} ETH
+                      </div>
                     </div>
-                  ) : (
-                    <button
-                      onClick={connect}
-                      className="hidden md:flex items-center px-4 py-2 text-sm text-emerald-600 bg-emerald-50 rounded-md hover:bg-emerald-100"
-                    >
-                      <Wallet className="h-4 w-4 mr-2" />
-                      Connect Wallet
-                    </button>
                   )}
                 </>
               ) : (
@@ -282,21 +329,13 @@ function Navbar({ isAuthenticated = false }: NavbarProps) {
                   </Link>
                 </>
               )}
-              {address ? (
+              {address && (
                 <div className="mt-4 flex items-center px-4 py-2 text-sm text-emerald-700 bg-emerald-50 rounded-md">
                   <Wallet className="h-4 w-4 mr-2" />
                   <span>
                     {address.slice(0, 6)}...{address.slice(-4)}
                   </span>
                 </div>
-              ) : (
-                <button
-                  onClick={connect}
-                  className="mt-4 w-full flex items-center justify-center px-4 py-2 text-sm text-emerald-600 bg-emerald-50 rounded-md hover:bg-emerald-100"
-                >
-                  <Wallet className="h-4 w-4 mr-2" />
-                  Connect Wallet
-                </button>
               )}
             </div>
           )}

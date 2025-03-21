@@ -45,5 +45,54 @@ export interface AuthState {
     id: string;
     email: string;
   } | null;
-  type: 'farmer' | 'buyer' | null;
+  type: "farmer" | "buyer" | null;
+}
+
+export interface Wallet {
+  id: string;
+  user_id: string;
+  balance: number;
+  token_balance: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WalletTransaction {
+  id: string;
+  wallet_id: string;
+  amount: number;
+  type: "DEPOSIT" | "WITHDRAWAL" | "TRANSFER";
+  status: "PENDING" | "COMPLETED" | "FAILED";
+  created_at: string;
+  recipient_wallet_id?: string;
+  description?: string;
+  transaction_hash?: string;
+  metadata?: {
+    orderId?: string | null;
+    productId?: string | null;
+    recipientName?: string | null;
+    txHash?: string | null;
+    toAddress?: string | null;
+    fromAddress?: string | null;
+    network?: "sepolia" | "mainnet" | null;
+  };
+}
+
+export interface WalletFundingRequest {
+  id: string;
+  user_id: string;
+  wallet_id: string;
+  amount_usdt: number;
+  amount_inr: number;
+  txid: string | null;
+  payment_proof_url: string | null;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  created_at: string;
+  updated_at: string;
+  user?: {
+    email: string;
+  };
+  wallet?: {
+    token_balance: number;
+  };
 }

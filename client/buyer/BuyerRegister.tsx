@@ -28,7 +28,6 @@ interface FormData {
   storage_capacity: string;
   business_address: string;
   pincode: string;
-  wallet_address: string | null;
   terms_accepted: boolean;
 }
 
@@ -55,7 +54,6 @@ function BuyerRegister() {
     storage_capacity: "",
     business_address: "",
     pincode: "",
-    wallet_address: null,
     terms_accepted: false,
   });
 
@@ -105,17 +103,6 @@ function BuyerRegister() {
     }
   };
 
-  const handleWalletConnect = async () => {
-    try {
-      const { address } = await connectWallet();
-      setFormData({ ...formData, wallet_address: address });
-    } catch (error) {
-      setError(
-        error instanceof Error ? error.message : "Failed to connect wallet"
-      );
-    }
-  };
-
   const validateForm = () => {
     if (formData.password !== formData.confirm_password) {
       throw new Error("Passwords do not match");
@@ -160,6 +147,7 @@ function BuyerRegister() {
       if (authError) throw authError;
       if (!authData.user) throw new Error("No user data returned");
 
+      // Wallet will be automatically created by database trigger
       const { error: profileError } = await supabase.from("buyers").insert([
         {
           user_id: authData.user.id,
@@ -175,7 +163,6 @@ function BuyerRegister() {
           storage_capacity: parseFloat(formData.storage_capacity) || 0,
           business_address: formData.business_address,
           pincode: formData.pincode,
-          wallet_address: formData.wallet_address,
           terms_accepted: formData.terms_accepted,
           business_name: formData.business_name,
         },
@@ -563,30 +550,6 @@ function BuyerRegister() {
             placeholder="Enter 6-digit pincode"
           />
         </div>
-      </div>
-
-      <div>
-        <button
-          type="button"
-          onClick={handleWalletConnect}
-          className="w-full flex items-center justify-center px-4 py-2 border border-emerald-600 rounded-md shadow-sm text-emerald-600 bg-emerald-50 hover:bg-emerald-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500"
-        >
-          {formData.wallet_address ? (
-            <>
-              <span className="mr-2">✓</span>
-              Wallet Connected: {formData.wallet_address.slice(0, 6)}...
-              {formData.wallet_address.slice(-4)}
-            </>
-          ) : (
-            "Connect Wallet"
-          )}
-        </button>
-        {!formData.wallet_address && (
-          <p className="mt-2 text-sm text-gray-500 flex items-center">
-            <AlertCircle className="h-4 w-4 mr-1" />
-            Required for transactions
-          </p>
-        )}
       </div>
 
       <div className="flex items-center">

@@ -18,6 +18,7 @@ import FarmerLogin from "../client/farmer/FarmerLogin";
 import BuyerLogin from "../client/buyer/BuyerLogin";
 import FarmerDashboard from "../client/farmer/FarmerDashboard";
 import BuyerDashboard from "../client/buyer/BuyerDashboard";
+import BuyerProducts from "../client/pages/buyer/Products";
 import FarmerAnalytics from "../client/pages/farmer/FarmerAnalytics";
 import BuyerAnalytics from "../client/pages/buyer/BuyerAnalytics";
 import Marketplace from "../client/pages/Marketplace";
@@ -41,7 +42,9 @@ import Analytics from "../client/admin/pages/Analytics";
 import NotificationsManagement from "../client/admin/pages/NotificationsManagement";
 import AdminSettings from "../client/admin/pages/Settings";
 import LoadingSpinner from "./components/shared/LoadingSpinner";
-import ProductDetails from "../client/pages/ProductDetails"; // Add this line
+import ProductDetails from "../client/pages/ProductDetails";
+import WalletDashboard from "../client/pages/wallet/WalletDashboard";
+import WalletFundingRequests from "../client/admin/pages/WalletFundingRequests";
 
 const debounce = (func: (...args: any[]) => void, wait: number) => {
   let timeout: NodeJS.Timeout;
@@ -231,6 +234,11 @@ function App() {
             path="settings"
             element={<AdminSettings />}
             key="admin-settings"
+          />
+          <Route
+            path="wallet-requests"
+            element={<WalletFundingRequests />}
+            key="admin-wallet-requests"
           />
         </Route>
 
@@ -435,6 +443,22 @@ function App() {
             key="buyer-dashboard"
           />
           <Route
+            path="/buyer/products"
+            element={
+              (console.log(
+                "*** Evaluating buyer/products route:",
+                { isAuthenticated, userType },
+                "***"
+              ),
+              isAuthenticated && userType === "buyer" ? (
+                <BuyerProducts />
+              ) : (
+                <Navigate to="/buyer/login" replace />
+              ))
+            }
+            key="buyer-products"
+          />
+          <Route
             path="/buyer/orders"
             element={
               (console.log(
@@ -592,6 +616,17 @@ function App() {
               isAuthenticated ? <ProductDetails /> : <Navigate to="/" replace />
             }
             key="product-details"
+          />
+          <Route
+            path="/:userType/wallet"
+            element={
+              isAuthenticated ? (
+                <WalletDashboard />
+              ) : (
+                <Navigate to="/login" replace />
+              )
+            }
+            key="wallet-dashboard"
           />
         </Route>
       </Routes>

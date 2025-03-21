@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { supabase } from "../lib/supabase";
-import { connectWallet } from "../lib/wallet";
 import { Eye, EyeOff, Upload, ArrowLeft, AlertCircle } from "lucide-react";
 import LoadingSpinner from "../../src/components/shared/LoadingSpinner";
 
@@ -27,7 +26,6 @@ interface FormData {
   land_number: string;
   // Step 4: Additional Details
   nominee_name: string;
-  wallet_address: string | null;
 }
 
 function FarmerRegister() {
@@ -53,7 +51,6 @@ function FarmerRegister() {
     land_size: "",
     land_number: "",
     nominee_name: "",
-    wallet_address: null,
   });
 
   const handleInputChange = (
@@ -87,17 +84,6 @@ function FarmerRegister() {
     } catch (error) {
       console.error("Error uploading file:", error);
       setError("Failed to upload profile photo");
-    }
-  };
-
-  const handleWalletConnect = async () => {
-    try {
-      const { address } = await connectWallet();
-      setFormData({ ...formData, wallet_address: address });
-    } catch (error) {
-      setError(
-        error instanceof Error ? error.message : "Failed to connect wallet"
-      );
     }
   };
 
@@ -161,7 +147,6 @@ function FarmerRegister() {
           land_size: parseFloat(formData.land_size),
           land_number: formData.land_number,
           nominee_name: formData.nominee_name || null,
-          wallet_address: formData.wallet_address,
         },
       ]);
 
@@ -531,30 +516,6 @@ function FarmerRegister() {
           Optional: Name of the person who will handle your account in your
           absence
         </p>
-      </div>
-
-      <div>
-        <button
-          type="button"
-          onClick={handleWalletConnect}
-          className="w-full flex items-center justify-center px-4 py-2 border border-indigo-600 rounded-md shadow-sm text-indigo-600 bg-indigo-50 hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-        >
-          {formData.wallet_address ? (
-            <>
-              <span className="mr-2">✓</span>
-              Wallet Connected: {formData.wallet_address.slice(0, 6)}...
-              {formData.wallet_address.slice(-4)}
-            </>
-          ) : (
-            "Connect Wallet"
-          )}
-        </button>
-        {!formData.wallet_address && (
-          <p className="mt-2 text-sm text-gray-500 flex items-center">
-            <AlertCircle className="h-4 w-4 mr-1" />
-            Required for transactions
-          </p>
-        )}
       </div>
     </div>
   );
