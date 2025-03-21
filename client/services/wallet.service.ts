@@ -2,13 +2,13 @@ import { supabase } from "../lib/supabase";
 import type { WalletTransaction } from "../types/types";
 import { Wallet, ethers, JsonRpcProvider, TransactionResponse } from "ethers";
 import * as CryptoJS from "crypto-js";
-import { EventEmitter } from "events"; // Change this line
+import EventEmitter from "eventemitter3"; // Updated import
 
 export class WalletService {
   private static TESTNET_RPC_URL = import.meta.env.VITE_PUBLIC_ALCHEMY_RPC_URL;
   private static ENCRYPTION_KEY = import.meta.env.VITE_WALLET_ENCRYPTION_KEY;
   public static provider = new JsonRpcProvider(WalletService.TESTNET_RPC_URL);
-  private static eventEmitter = new EventEmitter();
+  private static eventEmitter = new EventEmitter(); // Updated to use eventemitter3
 
   static subscribeToBalanceUpdates(
     address: string,

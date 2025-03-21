@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
 import { WalletService } from "../../services/wallet.service";
-import { useWallet } from "../../hooks/useWallet"; // Add this import
+import { useWallet } from "../../hooks/useWallet";
 import { useNavigate } from "react-router-dom";
 import type {
   Wallet,
@@ -13,12 +13,12 @@ import {
   RefreshCw,
   ArrowUpDown,
   Plus,
-  Minus,
   Search,
   Upload,
   X,
   ExternalLink,
 } from "lucide-react";
+import { QRCodeSVG as QRCode } from "qrcode.react";
 
 export default function WalletDashboard() {
   const navigate = useNavigate();
@@ -44,7 +44,7 @@ export default function WalletDashboard() {
 
   const { address, createWallet, balance, prices } = useWallet();
 
-  const [ethBalance, setEthBalance] = useState<string>("0");
+  const gpayUpiId = "omkr2355-2@oksbi"; // Your provided GPay UPI ID
 
   useEffect(() => {
     const init = async () => {
@@ -61,6 +61,7 @@ export default function WalletDashboard() {
         await WalletService.getOrCreateWallet();
         await loadWalletData();
         await loadFundingRequests();
+        await loadTransactions();
       } catch (error) {
         console.error("Initialization error:", error);
         setError("Failed to load wallet data");
@@ -70,24 +71,6 @@ export default function WalletDashboard() {
     };
     init();
   }, [navigate]);
-
-  useEffect(() => {
-    if (address) {
-      loadOnChainBalance();
-    }
-  }, [address]);
-
-  async function loadOnChainBalance() {
-    try {
-      const { balance } = await WalletService.getWalletBalance(
-        address!,
-        "onchain"
-      );
-      setEthBalance(balance);
-    } catch (error) {
-      console.error("Error loading ETH balance:", error);
-    }
-  }
 
   async function loadWalletData() {
     try {
@@ -102,22 +85,9 @@ export default function WalletDashboard() {
         .eq("user_id", user.id)
         .single();
 
-      if (walletData) {
-        setWallet(walletData);
-
-        const { data: txData } = await supabase
-          .from("wallet_transactions")
-          .select("*")
-          .eq("wallet_id", walletData.id)
-          .order("created_at", { ascending: false })
-          .limit(10);
-
-        if (txData) setTransactions(txData);
-      }
+      if (walletData) setWallet(walletData);
     } catch (error) {
       console.error("Error loading wallet:", error);
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -135,7 +105,7 @@ export default function WalletDashboard() {
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      setFundingRequests(data);
+      setFundingRequests(data || []);
     } catch (error) {
       console.error("Error loading funding requests:", error);
     }
@@ -150,20 +120,31 @@ export default function WalletDashboard() {
         wallet.id,
         recipientAddress,
         transferAmount,
-        false // false for token transfer, true for ETH transfer
+        false // USDT transfer
       );
+
+      // Explicitly log USDT withdrawal since transferTokens RPC might not
+      await supabase.from("wallet_transactions").insert([
+        {
+          wallet_id: wallet.id,
+          type: "WITHDRAWAL",
+          amount: parseFloat(transferAmount),
+          status: "COMPLETED",
+          metadata: { toAddress: recipientAddress, note: "USDT Transfer" },
+        },
+      ]);
 
       setTransferAmount("");
       setRecipientAddress("");
-      loadTransactions();
+      await loadTransactions();
     } catch (error) {
       console.error("Transfer error:", error);
+      setError("Failed to transfer USDT");
     } finally {
       setIsTransferring(false);
     }
   };
 
-  // Add a new function for ETH transfers
   const handleEthTransfer = async () => {
     if (!wallet || !recipientAddress || !transferAmount) return;
 
@@ -173,14 +154,15 @@ export default function WalletDashboard() {
         wallet.id,
         recipientAddress,
         transferAmount,
-        true // true for ETH transfer
+        true // ETH transfer
       );
 
       setTransferAmount("");
       setRecipientAddress("");
-      loadTransactions();
+      await loadTransactions();
     } catch (error) {
       console.error("ETH transfer error:", error);
+      setError("Failed to transfer ETH");
     } finally {
       setIsTransferring(false);
     }
@@ -236,23 +218,42 @@ export default function WalletDashboard() {
         throw new Error("Please enter a valid amount");
       }
 
-      const { error } = await supabase.from("wallet_funding_requests").insert([
-        {
-          user_id: user.id,
-          wallet_id: wallet.id,
-          amount_usdt,
-          amount_inr: amount_usdt * prices.usdt,
-          txid: formData.txid,
-          payment_proof_url: formData.payment_proof_url,
-        },
-      ]);
+      // Insert funding request
+      const { error: fundingError } = await supabase
+        .from("wallet_funding_requests")
+        .insert([
+          {
+            user_id: user.id,
+            wallet_id: wallet.id,
+            amount_usdt,
+            amount_inr: amount_usdt * prices.usdt,
+            txid: formData.txid,
+            payment_proof_url: formData.payment_proof_url,
+            status: "PENDING",
+          },
+        ]);
 
-      if (error) throw error;
+      if (fundingError) throw fundingError;
 
-      // Reset form and reload data
+      // Log "Adding Funds in Progress" transaction
+      const { error: txError } = await supabase
+        .from("wallet_transactions")
+        .insert([
+          {
+            wallet_id: wallet.id,
+            type: "DEPOSIT",
+            amount: amount_usdt,
+            status: "PENDING",
+            metadata: { txid: formData.txid, note: "Adding Funds in Progress" },
+          },
+        ]);
+
+      if (txError) throw txError;
+
       setFormData({ amount_usdt: "", txid: "", payment_proof_url: "" });
       setShowFundingForm(false);
-      loadFundingRequests();
+      await loadFundingRequests();
+      await loadTransactions();
     } catch (error) {
       console.error("Error submitting request:", error);
       setError(
@@ -266,11 +267,8 @@ export default function WalletDashboard() {
       setLoading(true);
       setError(null);
 
-      // Create the wallet
-      const { privateKey, mnemonic, address } =
-        await WalletService.createWallet();
+      const { privateKey, mnemonic, address } = await createWallet();
 
-      // Store credentials securely
       alert(`IMPORTANT: Save these details securely:
 Private Key: ${privateKey}
 Recovery Phrase: ${mnemonic}
@@ -278,12 +276,8 @@ Wallet Address: ${address}
 
 Store these safely - they cannot be recovered if lost!`);
 
-      // Reload the wallet data
       await loadWalletData();
-      await loadOnChainBalance();
-
-      // Set success message or handle UI updates
-      console.log("Wallet created successfully:", address);
+      await loadTransactions();
     } catch (error) {
       console.error("Failed to create wallet:", error);
       setError(
@@ -304,11 +298,9 @@ Store these safely - they cannot be recovered if lost!`);
     }
   };
 
-  // Add useEffect for auto-refresh
   useEffect(() => {
     if (wallet) {
       loadTransactions();
-      // Refresh transactions every 30 seconds
       const interval = setInterval(loadTransactions, 30000);
       return () => clearInterval(interval);
     }
@@ -318,7 +310,12 @@ Store these safely - they cannot be recovered if lost!`);
     (tx) =>
       tx.type.toLowerCase().includes(searchQuery.toLowerCase()) ||
       tx.amount.toString().includes(searchQuery) ||
-      tx.status.toLowerCase().includes(searchQuery.toLowerCase())
+      tx.status.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      Object.values(tx.metadata || {}).some((value) =>
+        String(value || "")
+          .toLowerCase()
+          .includes(searchQuery.toLowerCase())
+      )
   );
 
   if (!wallet && !loading) {
@@ -364,6 +361,13 @@ Store these safely - they cannot be recovered if lost!`);
       <div className="bg-white rounded-lg shadow-md p-6">
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-semibold text-gray-700">Wallet</h3>
+          <button
+            onClick={() => setShowFundingForm(true)}
+            className="px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 flex items-center"
+          >
+            <Plus className="w-5 h-5 mr-2" />
+            Add Funds
+          </button>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -508,6 +512,16 @@ Store these safely - they cannot be recovered if lost!`);
                   </td>
                 </tr>
               ))}
+              {fundingRequests.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={3}
+                    className="px-6 py-4 text-center text-sm text-gray-500"
+                  >
+                    No funding requests yet
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -530,6 +544,12 @@ Store these safely - they cannot be recovered if lost!`);
                 className="pl-10 pr-4 py-2 border rounded-md"
               />
             </div>
+            <button
+              onClick={loadTransactions}
+              className="p-2 text-gray-600 hover:text-gray-800"
+            >
+              <RefreshCw className="w-5 h-5" />
+            </button>
           </div>
         </div>
         <div className="overflow-x-auto">
@@ -543,51 +563,57 @@ Store these safely - they cannot be recovered if lost!`);
               </tr>
             </thead>
             <tbody>
-              {filteredTransactions.map((tx) => (
-                <tr key={tx.id} className="border-b last:border-0">
-                  <td className="py-3">{tx.type}</td>
-                  <td
-                    className={`py-3 ${
-                      tx.type === "DEPOSIT"
-                        ? "text-emerald-600"
-                        : "text-red-600"
-                    }`}
-                  >
-                    {tx.type === "DEPOSIT" ? "+" : "-"}
-                    {tx.amount}{" "}
-                    {tx.metadata?.network === "sepolia" ? "ETH" : "USDT"}
-                  </td>
-                  <td className="py-3">
-                    <div className="flex items-center space-x-2">
-                      <span
-                        className={`px-2 py-1 rounded-full text-xs ${
-                          tx.status === "COMPLETED"
-                            ? "bg-emerald-100 text-emerald-700"
-                            : tx.status === "PENDING"
-                            ? "bg-yellow-100 text-yellow-700"
-                            : "bg-red-100 text-red-700"
-                        }`}
-                      >
-                        {tx.status}
-                      </span>
-                      {tx.metadata?.txHash && (
-                        <a
-                          href={`https://sepolia.etherscan.io/tx/${tx.metadata.txHash}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-blue-600 hover:text-blue-800 flex items-center"
+              {filteredTransactions
+                .filter(
+                  (tx) =>
+                    !tx.metadata?.note?.includes("Funding Request") &&
+                    !tx.metadata?.note?.includes("Adding Funds")
+                )
+                .map((tx) => (
+                  <tr key={tx.id} className="border-b last:border-0">
+                    <td className="py-3">{tx.type}</td>
+                    <td
+                      className={`py-3 ${
+                        tx.type === "DEPOSIT"
+                          ? "text-emerald-600"
+                          : "text-red-600"
+                      }`}
+                    >
+                      {tx.type === "DEPOSIT" ? "+" : "-"}
+                      {tx.amount}{" "}
+                      {tx.metadata?.network === "sepolia" ? "ETH" : "USDT"}
+                    </td>
+                    <td className="py-3">
+                      <div className="flex items-center space-x-2">
+                        <span
+                          className={`px-2 py-1 rounded-full text-xs ${
+                            tx.status === "COMPLETED"
+                              ? "bg-emerald-100 text-emerald-700"
+                              : tx.status === "PENDING"
+                              ? "bg-yellow-100 text-yellow-700"
+                              : "bg-red-100 text-red-700"
+                          }`}
                         >
-                          <ExternalLink className="h-3 w-3 mr-1" />
-                          View
-                        </a>
-                      )}
-                    </div>
-                  </td>
-                  <td className="py-3 text-gray-500">
-                    {new Date(tx.created_at).toLocaleString()}
-                  </td>
-                </tr>
-              ))}
+                          {tx.status}
+                        </span>
+                        {tx.metadata?.txHash && (
+                          <a
+                            href={`https://sepolia.etherscan.io/tx/${tx.metadata.txHash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-blue-600 hover:text-blue-800 flex items-center"
+                          >
+                            <ExternalLink className="h-3 w-3 mr-1" />
+                            View
+                          </a>
+                        )}
+                      </div>
+                    </td>
+                    <td className="py-3 text-gray-500">
+                      {new Date(tx.created_at).toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
               {filteredTransactions.length === 0 && (
                 <tr>
                   <td colSpan={4} className="py-4 text-center text-gray-500">
@@ -618,6 +644,26 @@ Store these safely - they cannot be recovered if lost!`);
                 </div>
               )}
 
+              <div className="mb-6">
+                <h4 className="text-sm font-medium text-gray-700 mb-2">
+                  Send Payment via GPay
+                </h4>
+                <div className="flex justify-center">
+                  <QRCode
+                    value={`upi://pay?pa=${gpayUpiId}&pn=YourName&cu=INR`}
+                    size={150}
+                    className="border p-2 rounded-md"
+                  />
+                </div>
+                <p className="text-sm text-gray-600 mt-2 text-center">
+                  Scan this QR code with Google Pay to send funds to{" "}
+                  <span className="font-mono">{gpayUpiId}</span>.
+                </p>
+                <p className="text-sm text-gray-500 mt-1 text-center">
+                  After sending, enter the details below.
+                </p>
+              </div>
+
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700">
@@ -647,7 +693,7 @@ Store these safely - they cannot be recovered if lost!`);
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700">
-                    Transaction ID
+                    Transaction ID (from GPay)
                   </label>
                   <input
                     type="text"
@@ -662,7 +708,7 @@ Store these safely - they cannot be recovered if lost!`);
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700">
-                    Payment Proof
+                    Payment Proof (Optional)
                   </label>
                   <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
                     <div className="space-y-1 text-center">

@@ -236,7 +236,7 @@ function App() {
             key="admin-settings"
           />
           <Route
-            path="wallet-requests"
+            path="wallet/requests"
             element={<WalletFundingRequests />}
             key="admin-wallet-requests"
           />

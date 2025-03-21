@@ -28,6 +28,10 @@ CREATE TABLE IF NOT EXISTS wallet_transactions (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Add the metadata column to wallet_transactions if it does not already exist
+ALTER TABLE public.wallet_transactions
+ADD COLUMN IF NOT EXISTS metadata jsonb DEFAULT '{}'::jsonb;
+
 -- Create wallet funding requests table
 CREATE TABLE IF NOT EXISTS wallet_funding_requests (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,

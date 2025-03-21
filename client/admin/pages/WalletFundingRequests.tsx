@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
-import { Loader2, Eye } from "lucide-react";
+import { Loader2, Eye, X, Trash2, Check } from "lucide-react";
 import type { WalletFundingRequest } from "../../types/types";
 
 export default function WalletFundingRequests() {
@@ -16,23 +16,39 @@ export default function WalletFundingRequests() {
 
   async function loadRequests() {
     try {
+      // Fetch requests with user details
       const { data, error } = await supabase
-        .from("wallet_funding_requests")
+        .from("wallet_funding_request_details")
         .select(
           `
           *,
-          user:auth.users (
-            email
-          ),
-          wallet:wallets (
-            token_balance
-          )
+          user_email,
+          user_metadata,
+          farmer_name,
+          buyer_company_name,
+          wallet_address,
+          token_balance
         `
         )
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      setRequests(data || []);
+
+      const transformedData = (data || []).map((request) => ({
+        ...request,
+        user_details: {
+          email: request.user_email,
+          user_metadata: request.user_metadata,
+          name: request.farmer_name || request.buyer_company_name || "N/A",
+        },
+        wallet: {
+          wallet_address: request.wallet_address,
+          token_balance: request.token_balance,
+        },
+      }));
+
+      setRequests(transformedData);
+      setError(null);
     } catch (error) {
       console.error("Error loading requests:", error);
       setError(
@@ -45,13 +61,32 @@ export default function WalletFundingRequests() {
 
   const handleApprove = async (id: string) => {
     try {
-      const { error } = await supabase
+      // Start transaction
+      const { error: requestError } = await supabase
         .from("wallet_funding_requests")
         .update({ status: "APPROVED" })
         .eq("id", id);
 
-      if (error) throw error;
-      loadRequests();
+      if (requestError) throw requestError;
+
+      // Get the request details to update wallet balance
+      const { data: request } = await supabase
+        .from("wallet_funding_requests")
+        .select("wallet_id, amount_usdt")
+        .eq("id", id)
+        .single();
+
+      if (request) {
+        // Update wallet balance
+        const { error: walletError } = await supabase.rpc("add_wallet_funds", {
+          p_wallet_id: request.wallet_id,
+          p_amount: request.amount_usdt,
+        });
+
+        if (walletError) throw walletError;
+      }
+
+      await loadRequests();
     } catch (error) {
       console.error("Error approving request:", error);
       setError(
@@ -112,10 +147,13 @@ export default function WalletFundingRequests() {
                   User
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Amount (USDT)
+                  Role
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Amount (INR)
+                  Wallet Address
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Amount
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                   Status
@@ -129,16 +167,26 @@ export default function WalletFundingRequests() {
               {requests.map((request) => (
                 <tr key={request.id}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {new Date(request.created_at).toLocaleDateString()}
+                    {new Date(request.created_at).toLocaleString()}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {request.user?.email}
+                    {request.user_details?.email}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    {request.user_metadata?.type === "farmer"
+                      ? `Farmer - ${request.farmer_name || "N/A"}`
+                      : `Buyer - ${request.buyer_company_name || "N/A"}`}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-mono">
+                    {request.wallet?.wallet_address
+                      ? `${request.wallet.wallet_address.slice(
+                          0,
+                          6
+                        )}...${request.wallet.wallet_address.slice(-4)}`
+                      : "N/A"}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                     ${request.amount_usdt}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    ₹{request.amount_inr}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span
@@ -155,28 +203,33 @@ export default function WalletFundingRequests() {
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-3">
-                    <button
-                      onClick={() => setSelectedRequest(request)}
-                      className="text-emerald-600 hover:text-emerald-900"
-                    >
-                      <Eye className="h-5 w-5" />
-                    </button>
-                    {request.status === "PENDING" && (
-                      <>
-                        <button
-                          onClick={() => handleApprove(request.id)}
-                          className="text-green-600 hover:text-green-900"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          onClick={() => handleReject(request.id)}
-                          className="text-red-600 hover:text-red-900"
-                        >
-                          Reject
-                        </button>
-                      </>
-                    )}
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => setSelectedRequest(request)}
+                        className="text-blue-600 hover:text-blue-900"
+                        title="View Details"
+                      >
+                        <Eye className="h-5 w-5" />
+                      </button>
+                      {request.status === "PENDING" && (
+                        <>
+                          <button
+                            onClick={() => handleApprove(request.id)}
+                            className="text-green-600 hover:text-green-900"
+                            title="Approve"
+                          >
+                            <Check className="h-5 w-5" />
+                          </button>
+                          <button
+                            onClick={() => handleReject(request.id)}
+                            className="text-red-600 hover:text-red-900"
+                            title="Reject"
+                          >
+                            <Trash2 className="h-5 w-5" />
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -188,43 +241,101 @@ export default function WalletFundingRequests() {
       {/* Details Modal */}
       {selectedRequest && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-lg w-full max-w-lg p-6">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-3xl p-6">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">Request Details</h3>
+              <h3 className="text-lg font-semibold">Funding Request Details</h3>
               <button onClick={() => setSelectedRequest(null)}>
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="space-y-4">
-              <div>
-                <h4 className="text-sm font-medium text-gray-500">
-                  Transaction ID
-                </h4>
-                <p className="mt-1">{selectedRequest.txid}</p>
-              </div>
-
-              {selectedRequest.payment_proof_url && (
+            <div className="grid grid-cols-2 gap-6">
+              <div className="space-y-4">
                 <div>
                   <h4 className="text-sm font-medium text-gray-500">
-                    Payment Proof
+                    User Details
                   </h4>
-                  <img
-                    src={selectedRequest.payment_proof_url}
-                    alt="Payment proof"
-                    className="mt-2 max-h-64 rounded-md"
-                  />
+                  <p className="mt-1">
+                    Email: {selectedRequest.user_details?.email}
+                  </p>
+                  <p className="mt-1">
+                    Role: {selectedRequest.user_metadata?.type}
+                  </p>
+                  <p className="mt-1">
+                    Name:{" "}
+                    {selectedRequest.user_metadata?.type === "farmer"
+                      ? selectedRequest.farmer_name
+                      : selectedRequest.buyer_company_name}
+                  </p>
                 </div>
-              )}
 
-              <div className="flex justify-end mt-6">
-                <button
-                  onClick={() => setSelectedRequest(null)}
-                  className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
-                >
-                  Close
-                </button>
+                <div>
+                  <h4 className="text-sm font-medium text-gray-500">
+                    Wallet Details
+                  </h4>
+                  <p className="mt-1 font-mono">
+                    Address: {selectedRequest.wallet?.wallet_address}
+                  </p>
+                  <p className="mt-1">
+                    Current Balance: {selectedRequest.wallet?.token_balance}{" "}
+                    USDT
+                  </p>
+                </div>
+
+                <div>
+                  <h4 className="text-sm font-medium text-gray-500">
+                    Request Details
+                  </h4>
+                  <p className="mt-1">
+                    Amount (USDT): ${selectedRequest.amount_usdt}
+                  </p>
+                  <p className="mt-1">
+                    Amount (INR): ₹{selectedRequest.amount_inr}
+                  </p>
+                  <p className="mt-1">Transaction ID: {selectedRequest.txid}</p>
+                  <p className="mt-1">Status: {selectedRequest.status}</p>
+                  <p className="mt-1">
+                    Date:{" "}
+                    {new Date(selectedRequest.created_at).toLocaleString()}
+                  </p>
+                </div>
               </div>
+
+              <div>
+                <h4 className="text-sm font-medium text-gray-500 mb-2">
+                  Payment Proof
+                </h4>
+                {selectedRequest.payment_proof_url ? (
+                  <div className="relative">
+                    <img
+                      src={selectedRequest.payment_proof_url}
+                      alt="Payment proof"
+                      className="w-full rounded-lg shadow-lg"
+                    />
+                    <a
+                      href={selectedRequest.payment_proof_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-2 inline-block text-blue-600 hover:text-blue-800"
+                    >
+                      View Full Image
+                    </a>
+                  </div>
+                ) : (
+                  <p className="text-gray-500 italic">
+                    No payment proof uploaded
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-end mt-6 space-x-3">
+              <button
+                onClick={() => setSelectedRequest(null)}
+                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>

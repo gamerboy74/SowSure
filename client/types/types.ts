@@ -51,8 +51,12 @@ export interface AuthState {
 export interface Wallet {
   id: string;
   user_id: string;
+  wallet_address: string | null;
+  encrypted_private_key: string | null;
+  encrypted_mnemonic: string | null;
   balance: number;
   token_balance: number;
+  network: string;
   created_at: string;
   updated_at: string;
 }
@@ -75,6 +79,7 @@ export interface WalletTransaction {
     toAddress?: string | null;
     fromAddress?: string | null;
     network?: "sepolia" | "mainnet" | null;
+    note?: string | null;
   };
 }
 
@@ -89,10 +94,20 @@ export interface WalletFundingRequest {
   status: "PENDING" | "APPROVED" | "REJECTED";
   created_at: string;
   updated_at: string;
-  user?: {
+  user_details: {
     email: string;
+    user_metadata?: {
+      type?: "farmer" | "buyer";
+    };
   };
+  user_email?: string;
+  user_metadata?: {
+    type?: "farmer" | "buyer";
+  };
+  farmer_name?: string;
+  buyer_company_name?: string;
   wallet?: {
+    wallet_address: string;
     token_balance: number;
   };
 }
